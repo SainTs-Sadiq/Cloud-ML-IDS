@@ -1,0 +1,15 @@
+{
+  "is_readonly": 0.3627034306106055,
+  "eventName_freq": 0.22345765313046978,
+  "user_event_count": 0.11871338133584565,
+  "error_rate_by_user": 0.10015091137492545,
+  "eventName": 0.0753669467071773,
+  "userIdentity_type": 0.049019792651476275,
+  "isError": 0.023329090300062645,
+  "aws_service": 0.02098639709477779,
+  "ip_event_count": 0.016165459808785254,
+  "hour_of_day": 0.010106936985874428,
+  "day_of_week": 0.0,
+  "is_weekend": 0.0,
+  "is_off_hours": 0.0
+}
