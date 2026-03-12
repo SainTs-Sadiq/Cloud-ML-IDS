@@ -1,0 +1,345 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Cloud ML IDS — SOC Dashboard</title>
+<style>
+  /* ── Reset & base ────────────────────────────────────────── */
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  :root {
+    --bg:        #0d1117;
+    --surface:   #161b22;
+    --surface2:  #1c2128;
+    --border:    #30363d;
+    --text:      #c9d1d9;
+    --muted:     #8b949e;
+    --accent:    #58a6ff;
+    --critical:  #f85149;
+    --high:      #e3b341;
+    --medium:    #3fb950;
+    --low:       #58a6ff;
+    --radius:    8px;
+    --font:      "Segoe UI", system-ui, sans-serif;
+  }
+  body { background: var(--bg); color: var(--text); font-family: var(--font); font-size: 14px; min-height: 100vh; }
+
+  /* ── Layout ──────────────────────────────────────────────── */
+  .topbar { background: var(--surface); border-bottom: 1px solid var(--border); padding: 0 24px; display: flex; align-items: center; gap: 16px; height: 56px; }
+  .topbar h1 { font-size: 16px; font-weight: 600; display: flex; align-items: center; gap: 8px; }
+  .topbar h1 span.shield { font-size: 20px; }
+  .topbar .status-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--medium); box-shadow: 0 0 6px var(--medium); animation: pulse 2s infinite; }
+  @keyframes pulse { 0%,100% { opacity:1; } 50% { opacity:.4; } }
+  .topbar .last-refresh { margin-left: auto; color: var(--muted); font-size: 12px; }
+
+  .layout { display: grid; grid-template-columns: 220px 1fr; min-height: calc(100vh - 56px); }
+
+  /* ── Sidebar ─────────────────────────────────────────────── */
+  .sidebar { background: var(--surface); border-right: 1px solid var(--border); padding: 20px 12px; display: flex; flex-direction: column; gap: 6px; }
+  .nav-btn { display: flex; align-items: center; gap: 10px; padding: 9px 12px; border-radius: var(--radius); cursor: pointer; border: none; background: none; color: var(--text); font-size: 13px; width: 100%; text-align: left; transition: background .15s; }
+  .nav-btn:hover { background: var(--surface2); }
+  .nav-btn.active { background: rgba(88,166,255,.15); color: var(--accent); }
+  .nav-btn .icon { width: 18px; text-align: center; }
+  .sidebar-section { color: var(--muted); font-size: 11px; font-weight: 600; letter-spacing: .08em; text-transform: uppercase; padding: 12px 12px 4px; }
+
+  /* ── Main content ────────────────────────────────────────── */
+  .main { padding: 24px; overflow-y: auto; }
+
+  /* ── Stats cards ─────────────────────────────────────────── */
+  .stats-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 16px; margin-bottom: 24px; }
+  .stat-card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 16px 20px; }
+  .stat-card .label { color: var(--muted); font-size: 12px; font-weight: 500; margin-bottom: 6px; }
+  .stat-card .value { font-size: 28px; font-weight: 700; line-height: 1; }
+  .stat-card.critical .value { color: var(--critical); }
+  .stat-card.high     .value { color: var(--high); }
+  .stat-card.medium   .value { color: var(--medium); }
+  .stat-card.low      .value { color: var(--low); }
+
+  /* ── Toolbar ─────────────────────────────────────────────── */
+  .toolbar { display: flex; align-items: center; gap: 10px; margin-bottom: 16px; flex-wrap: wrap; }
+  .search-box { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 7px 12px; color: var(--text); font-size: 13px; width: 240px; outline: none; }
+  .search-box:focus { border-color: var(--accent); }
+  .filter-btn { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 7px 14px; color: var(--text); font-size: 12px; cursor: pointer; transition: background .15s; }
+  .filter-btn:hover, .filter-btn.active { background: rgba(88,166,255,.15); border-color: var(--accent); color: var(--accent); }
+  .spacer { flex: 1; }
+  .refresh-btn { background: var(--accent); border: none; border-radius: var(--radius); padding: 7px 16px; color: #0d1117; font-size: 12px; font-weight: 600; cursor: pointer; }
+  .refresh-btn:hover { opacity: .85; }
+
+  /* ── Alert cards ─────────────────────────────────────────── */
+  #alerts-list { display: flex; flex-direction: column; gap: 10px; }
+  .alert-card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 16px 18px; border-left-width: 4px; transition: transform .1s; }
+  .alert-card:hover { transform: translateX(2px); }
+  .alert-card.CRITICAL { border-left-color: var(--critical); }
+  .alert-card.HIGH     { border-left-color: var(--high); }
+  .alert-card.MEDIUM   { border-left-color: var(--medium); }
+  .alert-card.LOW      { border-left-color: var(--low); }
+
+  .card-header { display: flex; align-items: flex-start; gap: 12px; margin-bottom: 10px; }
+  .badge { display: inline-block; padding: 2px 8px; border-radius: 4px; font-size: 11px; font-weight: 700; letter-spacing: .05em; }
+  .badge.CRITICAL { background: rgba(248,81,73,.15); color: var(--critical); }
+  .badge.HIGH     { background: rgba(227,179,65,.15); color: var(--high); }
+  .badge.MEDIUM   { background: rgba(63,185,80,.15);  color: var(--medium); }
+  .badge.LOW      { background: rgba(88,166,255,.15); color: var(--low); }
+
+  .card-title { font-size: 15px; font-weight: 600; }
+  .card-meta { display: flex; gap: 20px; flex-wrap: wrap; color: var(--muted); font-size: 12px; margin-bottom: 10px; }
+  .card-meta span { display: flex; align-items: center; gap: 5px; }
+
+  .techniques { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 10px; }
+  .technique-tag { background: rgba(88,166,255,.08); border: 1px solid rgba(88,166,255,.25); border-radius: 4px; padding: 3px 8px; font-size: 11px; color: var(--accent); }
+  .technique-tag.HIGH-conf  { border-color: rgba(248,81,73,.4);  color: var(--critical); background: rgba(248,81,73,.08); }
+  .technique-tag.MEDIUM-conf{ border-color: rgba(227,179,65,.4); color: var(--high); background: rgba(227,179,65,.08); }
+
+  details summary { cursor: pointer; color: var(--muted); font-size: 12px; user-select: none; }
+  details[open] summary { color: var(--accent); }
+  pre.raw { background: var(--surface2); border: 1px solid var(--border); border-radius: var(--radius); padding: 12px; font-size: 11px; overflow-x: auto; color: var(--text); margin-top: 8px; max-height: 280px; overflow-y: auto; }
+
+  /* ── MITRE heatmap panel ─────────────────────────────────── */
+  #mitre-panel { display: none; }
+  .mitre-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 12px; }
+  .tactic-box { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 14px; }
+  .tactic-name { font-size: 12px; font-weight: 600; color: var(--accent); margin-bottom: 8px; }
+  .tactic-tech { font-size: 11px; color: var(--text); padding: 3px 0; border-bottom: 1px solid var(--border); display: flex; justify-content: space-between; }
+  .tactic-count { background: var(--surface2); border-radius: 4px; padding: 1px 6px; font-size: 10px; }
+
+  /* ── Empty / loading states ─────────────────────────────── */
+  .empty { text-align: center; padding: 60px 20px; color: var(--muted); }
+  .empty .icon { font-size: 40px; margin-bottom: 12px; }
+  .spinner { border: 3px solid var(--border); border-top-color: var(--accent); border-radius: 50%; width: 28px; height: 28px; animation: spin .8s linear infinite; margin: 40px auto; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  /* ── Scrollbar ───────────────────────────────────────────── */
+  ::-webkit-scrollbar { width: 6px; height: 6px; }
+  ::-webkit-scrollbar-track { background: var(--surface); }
+  ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+</style>
+</head>
+<body>
+
+<!-- ── Top bar ────────────────────────────────────────────────────────── -->
+<div class="topbar">
+  <h1><span class="shield">🛡️</span> Cloud ML IDS — SOC Dashboard</h1>
+  <div class="status-dot" id="status-dot" title="Live"></div>
+  <span class="last-refresh" id="last-refresh">Connecting…</span>
+</div>
+
+<div class="layout">
+
+  <!-- ── Sidebar ──────────────────────────────────────────────────────── -->
+  <nav class="sidebar">
+    <div class="sidebar-section">Views</div>
+    <button class="nav-btn active" onclick="showPanel('alerts')" id="nav-alerts">
+      <span class="icon">🚨</span> Alerts
+    </button>
+    <button class="nav-btn" onclick="showPanel('mitre')" id="nav-mitre">
+      <span class="icon">🗺️</span> MITRE Heatmap
+    </button>
+    <div class="sidebar-section" style="margin-top:16px;">Filter</div>
+    <button class="nav-btn" id="sf-all"      onclick="setFilter('ALL')"      style="font-weight:600;">All</button>
+    <button class="nav-btn" id="sf-critical" onclick="setFilter('CRITICAL')">🔴 Critical</button>
+    <button class="nav-btn" id="sf-high"     onclick="setFilter('HIGH')"    >🟡 High</button>
+    <button class="nav-btn" id="sf-medium"   onclick="setFilter('MEDIUM')"  >🟢 Medium</button>
+    <button class="nav-btn" id="sf-low"      onclick="setFilter('LOW')"     >🔵 Low</button>
+  </nav>
+
+  <!-- ── Main ─────────────────────────────────────────────────────────── -->
+  <main class="main">
+
+    <!-- Stats cards -->
+    <div class="stats-grid">
+      <div class="stat-card"><div class="label">Total Alerts</div><div class="value" id="sc-total">—</div></div>
+      <div class="stat-card critical"><div class="label">Critical</div><div class="value" id="sc-critical">—</div></div>
+      <div class="stat-card high">    <div class="label">High</div>    <div class="value" id="sc-high">—</div></div>
+      <div class="stat-card medium">  <div class="label">Medium</div>  <div class="value" id="sc-medium">—</div></div>
+      <div class="stat-card low">     <div class="label">Low</div>     <div class="value" id="sc-low">—</div></div>
+      <div class="stat-card"><div class="label">Unique IPs</div><div class="value" id="sc-ips">—</div></div>
+    </div>
+
+    <!-- Alerts panel -->
+    <div id="alerts-panel">
+      <div class="toolbar">
+        <input class="search-box" id="search" placeholder="🔍  Search event, IP, technique…" oninput="renderAlerts()" />
+        <div class="spacer"></div>
+        <button class="refresh-btn" onclick="loadAlerts()">↻ Refresh</button>
+      </div>
+      <div id="alerts-list"><div class="spinner"></div></div>
+    </div>
+
+    <!-- MITRE heatmap panel -->
+    <div id="mitre-panel">
+      <h2 style="margin-bottom:16px;font-size:15px;">MITRE ATT&amp;CK Technique Coverage</h2>
+      <div class="mitre-grid" id="mitre-grid"></div>
+    </div>
+
+  </main>
+</div>
+
+<script>
+// ─────────────────────────────────────────────────────────────────────────
+// State
+// ─────────────────────────────────────────────────────────────────────────
+let allAlerts   = [];
+let activeFilter = "ALL";
+const API        = "http://localhost:55000";
+
+// ─────────────────────────────────────────────────────────────────────────
+// Data fetching
+// ─────────────────────────────────────────────────────────────────────────
+async function loadAlerts() {
+  setStatus(true);
+  try {
+    // Try live server first
+    const res    = await fetch(`${API}/alerts?limit=200`);
+    allAlerts    = await res.json();
+  } catch (_) {
+    // Fallback: load from local alerts.json served by simple HTTP
+    try {
+      const res = await fetch("alerts.json");
+      allAlerts = await res.json();
+    } catch (e) {
+      allAlerts = [];
+      console.warn("Could not fetch alerts:", e);
+    }
+  }
+  updateStats();
+  renderAlerts();
+  renderMitre();
+  document.getElementById("last-refresh").textContent =
+    "Last updated: " + new Date().toLocaleTimeString();
+  setStatus(false);
+}
+
+function setStatus(loading) {
+  const dot = document.getElementById("status-dot");
+  dot.style.background = loading ? "#e3b341" : "#3fb950";
+  dot.style.boxShadow  = `0 0 6px ${loading ? "#e3b341" : "#3fb950"}`;
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// Stats
+// ─────────────────────────────────────────────────────────────────────────
+function updateStats() {
+  const counts = { CRITICAL: 0, HIGH: 0, MEDIUM: 0, LOW: 0 };
+  const ips    = new Set();
+  allAlerts.forEach(a => {
+    counts[a.alert_level] = (counts[a.alert_level] || 0) + 1;
+    if (a.source_ip) ips.add(a.source_ip);
+  });
+  document.getElementById("sc-total").textContent    = allAlerts.length;
+  document.getElementById("sc-critical").textContent = counts.CRITICAL;
+  document.getElementById("sc-high").textContent     = counts.HIGH;
+  document.getElementById("sc-medium").textContent   = counts.MEDIUM;
+  document.getElementById("sc-low").textContent      = counts.LOW;
+  document.getElementById("sc-ips").textContent      = ips.size;
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// Alert rendering
+// ─────────────────────────────────────────────────────────────────────────
+function setFilter(level) {
+  activeFilter = level;
+  document.querySelectorAll(".sidebar .nav-btn[id^='sf-']").forEach(b => b.classList.remove("active"));
+  document.getElementById("sf-" + level.toLowerCase()).classList.add("active");
+  renderAlerts();
+}
+
+function renderAlerts() {
+  const query   = document.getElementById("search").value.toLowerCase();
+  const list    = document.getElementById("alerts-list");
+
+  const filtered = allAlerts.filter(a => {
+    if (activeFilter !== "ALL" && a.alert_level !== activeFilter) return false;
+    if (!query) return true;
+    const blob = JSON.stringify(a).toLowerCase();
+    return blob.includes(query);
+  });
+
+  if (!filtered.length) {
+    list.innerHTML = `<div class="empty"><div class="icon">🔍</div><p>No alerts match your filter.</p></div>`;
+    return;
+  }
+
+  list.innerHTML = filtered.map(alertCard).join("");
+}
+
+function alertCard(a) {
+  const ts     = a.timestamp ? new Date(a.timestamp).toLocaleString() : "N/A";
+  const techs  = (a.mitre_techniques || []).map(t =>
+    `<span class="technique-tag ${t.confidence}-conf" title="${t.tactic}">${t.technique_id}: ${t.technique_name}</span>`
+  ).join("");
+  const models = Object.entries(a.model_flags || {})
+    .filter(([, v]) => v)
+    .map(([k]) => `<span style="color:var(--muted)">${k.replace("_", " ")}</span>`)
+    .join(", ");
+
+  return `
+<div class="alert-card ${a.alert_level}">
+  <div class="card-header">
+    <span class="badge ${a.alert_level}">${a.alert_level}</span>
+    <span class="card-title">${a.event_name || "Unknown Event"}</span>
+  </div>
+  <div class="card-meta">
+    <span>🕐 ${ts}</span>
+    <span>🌐 ${a.source_ip || "N/A"}</span>
+    <span>☁️ ${a.event_source || "N/A"}</span>
+    ${a.aws_region ? `<span>📍 ${a.aws_region}</span>` : ""}
+    <span>📊 Score: ${a.anomaly_score?.toFixed(4) ?? "N/A"}</span>
+    ${models ? `<span>🤖 ${models}</span>` : ""}
+  </div>
+  ${techs ? `<div class="techniques">${techs}</div>` : ""}
+  <details>
+    <summary>View raw event data</summary>
+    <pre class="raw">${JSON.stringify(a, null, 2)}</pre>
+  </details>
+</div>`;
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// MITRE heatmap
+// ─────────────────────────────────────────────────────────────────────────
+function renderMitre() {
+  const tacticMap = {};
+  allAlerts.forEach(a => {
+    (a.mitre_techniques || []).forEach(t => {
+      if (!tacticMap[t.tactic]) tacticMap[t.tactic] = {};
+      const key = `${t.technique_id}: ${t.technique_name}`;
+      tacticMap[t.tactic][key] = (tacticMap[t.tactic][key] || 0) + 1;
+    });
+  });
+
+  const grid = document.getElementById("mitre-grid");
+  if (!Object.keys(tacticMap).length) {
+    grid.innerHTML = `<div class="empty"><div class="icon">🗺️</div><p>No technique data yet.</p></div>`;
+    return;
+  }
+
+  grid.innerHTML = Object.entries(tacticMap)
+    .sort(([a],[b]) => a.localeCompare(b))
+    .map(([tactic, techs]) => {
+      const rows = Object.entries(techs)
+        .sort(([,a],[,b]) => b - a)
+        .map(([name, cnt]) =>
+          `<div class="tactic-tech"><span>${name}</span><span class="tactic-count">${cnt}</span></div>`
+        ).join("");
+      return `<div class="tactic-box"><div class="tactic-name">${tactic}</div>${rows}</div>`;
+    }).join("");
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// Panel switching
+// ─────────────────────────────────────────────────────────────────────────
+function showPanel(name) {
+  document.getElementById("alerts-panel").style.display = name === "alerts" ? "" : "none";
+  document.getElementById("mitre-panel").style.display  = name === "mitre"  ? "" : "none";
+  document.querySelectorAll(".sidebar .nav-btn[id^='nav-']").forEach(b => b.classList.remove("active"));
+  document.getElementById(`nav-${name}`).classList.add("active");
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// Boot
+// ─────────────────────────────────────────────────────────────────────────
+loadAlerts();
+setInterval(loadAlerts, 15000);   // auto-refresh every 15 s
+</script>
+</body>
+</html>
